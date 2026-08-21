@@ -1,0 +1,35 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+tareaunobd2
+
+# Test binary
+*.test
+
+# Output
+*.out
+
+# Go coverage
+*.prof
+
+# Build directories
+/bin/
+/pkg/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
