@@ -2,7 +2,10 @@ module t1bd2/main
 
 go 1.25.0
 
-require github.com/gin-gonic/gin v1.12.0
+require (
+	github.com/gin-gonic/gin v1.12.0
+	github.com/lib/pq v1.10.9
+)
 
 require (
 	github.com/bytedance/gopkg v0.1.3 // indirect
