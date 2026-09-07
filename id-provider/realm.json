@@ -1,0 +1,31 @@
+{
+  "realm": "tareauno",
+  "enabled": true,
+  "roles": { "realm": [{ "name": "reserva-writer" }] },
+  "clients": [{
+    "clientId": "api",
+    "publicClient": true,
+    "directAccessGrantsEnabled": true,
+    "standardFlowEnabled": true,
+    "redirectUris": ["http://localhost:6767/*"],
+    "webOrigins": ["*"]
+  }],
+  "users": [
+    {
+      "username": "writer", "enabled": true,
+      "email": "writer@example.com", "emailVerified": true,
+      "firstName": "Writer", "lastName": "User",
+      "requiredActions": [],
+      "credentials": [{ "type": "password", "value": "writer123", "temporary": false }],
+      "realmRoles": ["reserva-writer"]
+    },
+    {
+      "username": "reader", "enabled": true,
+      "email": "reader@example.com", "emailVerified": true,
+      "firstName": "Reader", "lastName": "User",
+      "requiredActions": [],
+      "credentials": [{ "type": "password", "value": "reader123", "temporary": false }],
+      "realmRoles": []
+    }
+  ]
+}
