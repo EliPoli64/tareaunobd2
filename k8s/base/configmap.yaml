@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  POSTGRES_DB: "TareaUnoDB"
+  POSTGRES_PORT: "5432"
+  DB_HOST: "db"
+  DB_PORT: "5432" 
+  API_PORT: "1412"
+  KC_ISSUER_URL: "http://keycloak:6767/realms/tareauno"
+  KC_JWKS_URL: "http://keycloak:6767/realms/tareauno/protocol/openid-connect/certs"

@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS Reserva (
+  reservaId SERIAL PRIMARY KEY,
+  nombre VARCHAR(255) NOT NULL,
+  fecha DATE NOT NULL,
+  cantidadPersonas INTEGER NOT NULL,
+  estado VARCHAR(31) NOT NULL
+);
