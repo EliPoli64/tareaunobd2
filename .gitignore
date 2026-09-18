@@ -5,6 +5,7 @@
 *.so
 *.dylib
 tareaunobd2
+/api/main
 
 # Test binary
 *.test
