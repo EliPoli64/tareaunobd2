@@ -10,6 +10,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -179,6 +180,43 @@ func TestDBUpdateRoundTrip(t *testing.T) {
 	// Limpieza.
 	if w := serve(t, r, http.MethodDelete, idPath, "", token); w.Code != http.StatusNoContent {
 		t.Fatalf("DELETE: got %d, want 204", w.Code)
+	}
+}
+
+// TestEntryPointDefaultPortConflict cubre el camino de éxito de main():
+// con la base alcanzable y el puerto por defecto (1412) ya ocupado por la
+// pila, router.Run falla al instante y main() retorna en vez de quedarse
+// colgado.
+func TestEntryPointDefaultPortConflict(t *testing.T) {
+	liveDB(t)
+	setEnv(t, map[string]string{
+		"DB_HOST":     "localhost",
+		"DB_PORT":     envFirst("5432", "POSTGRES_PORT", "DB_PORT"),
+		"DB_USER":     envFirst("tareaunobd2", "POSTGRES_USER", "DB_USER"),
+		"DB_PASSWORD": envFirst("holaHolaComoEstan", "POSTGRES_PASSWORD", "DB_PASSWORD"),
+		"DB_NAME":     envFirst("TareaUnoDB", "POSTGRES_DB", "DB_NAME"),
+		"PORT":        "",
+	})
+	// Si el puerto 1412 está libre, main() se quedaría escuchando: se salta.
+	probe, err := net.Listen("tcp", ":1412")
+	if err == nil {
+		probe.Close()
+		t.Skip("puerto 1412 libre: main() se quedaría escuchando")
+	}
+	oldRetries, oldDelay := dbMaxRetries, dbRetryDelay
+	dbMaxRetries, dbRetryDelay = 3, time.Millisecond
+	t.Cleanup(func() { dbMaxRetries, dbRetryDelay = oldRetries, oldDelay })
+	oldDB := db
+	t.Cleanup(func() { db = oldDB })
+	done := make(chan struct{})
+	go func() {
+		main()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("main() no retornó con el puerto 1412 ocupado")
 	}
 }
 

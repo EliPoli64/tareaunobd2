@@ -6,6 +6,7 @@ package main
 // by the integration suite instead.
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -174,5 +175,106 @@ func TestValidarReserva(t *testing.T) {
 		if got := validarReservaIn(tc.in) == ""; got != tc.want {
 			t.Errorf("%s: got valid=%v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// fakeScanRow es un scanner mínimamente funcional para probar scanReserva
+// sin depender de una conexión real.
+type fakeScanRow struct {
+	vals []any
+	err  error
+}
+
+func (f fakeScanRow) Scan(dest ...any) error {
+	if f.err != nil {
+		return f.err
+	}
+	for i, d := range dest {
+		if i >= len(f.vals) {
+			break
+		}
+		switch v := d.(type) {
+		case *int:
+			if n, ok := f.vals[i].(int); ok {
+				*v = n
+			}
+		case *string:
+			if s, ok := f.vals[i].(string); ok {
+				*v = s
+			}
+		case *time.Time:
+			if t, ok := f.vals[i].(time.Time); ok {
+				*v = t
+			}
+		}
+	}
+	return nil
+}
+
+func TestScanReserva(t *testing.T) {
+	fecha := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	row := fakeScanRow{vals: []any{5, "Ana", fecha, 3, "pendiente"}}
+	r, err := scanReserva(row)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if r.ReservaID != 5 || r.Nombre != "Ana" || r.CantidadPersonas != 3 || r.Estado != "pendiente" || !r.Fecha.Equal(fecha) {
+		t.Fatalf("scan result: %+v", r)
+	}
+	if _, err := scanReserva(fakeScanRow{err: fmt.Errorf("boom")}); err == nil {
+		t.Fatal("scan con error: want error")
+	}
+}
+
+func TestReservaJSON(t *testing.T) {
+	r := reserva{
+		ReservaID:        7,
+		Nombre:           "Ana",
+		Fecha:            time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC),
+		CantidadPersonas: 2,
+		Estado:           "pendiente",
+	}
+	got := r.json()
+	if got["reservaId"] != 7 {
+		t.Errorf("reservaId: got %v", got["reservaId"])
+	}
+	if got["fecha"] != "2026-08-20" {
+		t.Errorf("fecha: got %v, want 2026-08-20", got["fecha"])
+	}
+	if got["nombre"] != "Ana" || got["cantidadPersonas"] != 2 || got["estado"] != "pendiente" {
+		t.Errorf("json completo: %v", got)
+	}
+}
+
+func TestHomeOpen(t *testing.T) {
+	r, _ := testRouter(t)
+	if w := serve(t, r, http.MethodGet, "/", "", ""); w.Code != http.StatusOK {
+		t.Fatalf("GET /: got %d, want 200", w.Code)
+	}
+}
+
+// fakeReservaRows es un doble de la iteración de *sql.Rows.
+type fakeReservaRows struct {
+	next    bool
+	scanErr error
+	rowsErr error
+}
+
+func (f fakeReservaRows) Next() bool             { return f.next }
+func (f fakeReservaRows) Scan(dest ...any) error { return f.scanErr }
+func (f fakeReservaRows) Err() error             { return f.rowsErr }
+func (f fakeReservaRows) Close() error           { return nil }
+
+func TestReservasFromRowsScanError(t *testing.T) {
+	rows := fakeReservaRows{next: true, scanErr: fmt.Errorf("scan roto")}
+	if _, err := reservasFromRows(rows); err == nil {
+		t.Fatal("scan fallido en la iteración: want error")
+	}
+}
+
+func TestReservasFromRowsRowsErr(t *testing.T) {
+	rows := fakeReservaRows{rowsErr: fmt.Errorf("rows roto")}
+	if _, err := reservasFromRows(rows); err == nil {
+		t.Fatal("rows.Err != nil: want error")
 	}
 }

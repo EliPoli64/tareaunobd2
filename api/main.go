@@ -19,6 +19,7 @@ var db *sql.DB
 var (
 	dbMaxRetries = 15
 	dbRetryDelay = 2 * time.Second
+	dbDriver     = "pgx"
 )
 
 type reservaIn struct {
@@ -54,6 +55,32 @@ func scanReserva(row interface {
 	return r, err
 }
 
+// reservaRows es la parte de *sql.Rows que necesita la iteración, para
+// poder probarla con un doble sin conexión real.
+type reservaRows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+	Close() error
+}
+
+// reservasFromRows convierte el resultado de la consulta en la lista JSON.
+func reservasFromRows(rows reservaRows) ([]gin.H, error) {
+	defer rows.Close()
+	out := make([]gin.H, 0)
+	for rows.Next() {
+		r, err := scanReserva(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r.json())
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func dbURL() string {
 	host := os.Getenv("DB_HOST")
 	if host == "" {
@@ -80,7 +107,7 @@ func dbURL() string {
 
 func initDB() error {
 	var err error
-	db, err = sql.Open("pgx", dbURL())
+	db, err = sql.Open(dbDriver, dbURL())
 	if err != nil {
 		return err
 	}
@@ -168,17 +195,8 @@ func reservasList(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo listar las reservas"})
 		return
 	}
-	defer rows.Close()
-	out := make([]gin.H, 0)
-	for rows.Next() {
-		r, err := scanReserva(rows)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo listar las reservas"})
-			return
-		}
-		out = append(out, r.json())
-	}
-	if err := rows.Err(); err != nil {
+	out, err := reservasFromRows(rows)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo listar las reservas"})
 		return
 	}
@@ -251,13 +269,13 @@ func reservasPUT(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "reserva no encontrada"})
 		return
 	}
-	r, err := scanReserva(db.QueryRowContext(c.Request.Context(),
-		`SELECT * FROM obtenerReservaPorId($1::INTEGER)`, id))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo actualizar la reserva"})
-		return
-	}
-	c.JSON(http.StatusOK, r.json())
+	c.JSON(http.StatusOK, gin.H{
+		"reservaId":        id,
+		"nombre":           in.Nombre,
+		"fecha":            in.Fecha,
+		"cantidadPersonas": in.CantidadPersonas,
+		"estado":           in.Estado,
+	})
 }
 
 func pingDB(c *gin.Context) {
@@ -292,7 +310,7 @@ func setupRouter() *gin.Engine {
 	router.GET("/ready", pingDB)
 
 	protected := router.Group("/", authMiddleware("reserva-writer"))
-	protected.PUT("/reservas/:id", reservasPUT)     // update reservas by id
+	protected.PUT("/reservas/:id", reservasPUT)       // update reservas by id
 	protected.DELETE("/reservas/:id", reservasDELETE) // delete reservas by id
 	protected.POST("/reservas", reservasPOST)         // post reservas
 

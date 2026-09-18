@@ -132,12 +132,8 @@ func verifyToken(tokenString string) (jwt.MapClaims, error) {
 		return nil, fmt.Errorf("KC_ISSUER_URL no está configurado")
 	}
 	claims := jwt.MapClaims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims,
+	_, err := jwt.ParseWithClaims(tokenString, claims,
 		func(t *jwt.Token) (any, error) {
-			// Fijar el algoritmo bloquea ataques de confusión (p. ej. `none`).
-			if t.Method.Alg() != jwt.SigningMethodRS256.Alg() {
-				return nil, fmt.Errorf("algoritmo inesperado: %s", t.Header["alg"])
-			}
 			kid, _ := t.Header["kid"].(string)
 			if kid == "" {
 				return nil, fmt.Errorf("token sin kid")
@@ -146,13 +142,12 @@ func verifyToken(tokenString string) (jwt.MapClaims, error) {
 		},
 		jwt.WithLeeway(tokenLeeway),
 		jwt.WithIssuer(kcIssuer),
+		// Fijar el algoritmo bloquea ataques de confusión (p. ej. `none`):
+		// jwt/v5 lo rechaza antes de invocar la keyfunc.
 		jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}),
 	)
 	if err != nil {
 		return nil, err
-	}
-	if !token.Valid {
-		return nil, fmt.Errorf("token inválido")
 	}
 	return claims, nil
 }

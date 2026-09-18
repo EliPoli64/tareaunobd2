@@ -205,10 +205,100 @@ func TestHasRoleTable(t *testing.T) {
 		{"ausente", jwt.MapClaims{"realm_access": map[string]any{"roles": []any{"a"}}}, false},
 		{"sin claim", jwt.MapClaims{}, false},
 		{"tipo roto", jwt.MapClaims{"realm_access": "no"}, false},
+		{"roles tipo roto", jwt.MapClaims{"realm_access": map[string]any{"roles": "no"}}, false},
 	}
 	for _, tc := range cases {
 		if got := hasRole(tc.claims, testRole); got != tc.want {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestFetchJWKSBrokenKeysSkipped: las llaves con N/E corruptos o exponente
+// inválido se descartan y la buena sigue entrando a la caché.
+func TestFetchJWKSBrokenKeysSkipped(t *testing.T) {
+	tk := newTestKeys(t)
+	n := b64urlBig(tk.priv.N.Bytes())
+	doc := fmt.Sprintf(`{"keys":[
+		{"kty":"RSA","kid":"badN","n":"!!!","e":"AQAB"},
+		{"kty":"RSA","kid":"badE","n":%q,"e":"!!!"},
+		{"kty":"RSA","kid":"zeroE","n":%q,"e":"AA"},
+		{"kty":"RSA","kid":"good","n":%q,"e":"AQAB"}
+	]}`, n, n, n)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, doc)
+	}))
+	defer srv.Close()
+	old := kcJWKSURL
+	kcJWKSURL = srv.URL
+	t.Cleanup(func() { kcJWKSURL = old })
+	if err := fetchJWKS(); err != nil {
+		t.Fatalf("fetchJWKS: %v", err)
+	}
+	jwksCache.RLock()
+	_, ok := jwksCache.keys["good"]
+	_, badN := jwksCache.keys["badN"]
+	jwksCache.RUnlock()
+	if !ok {
+		t.Fatal("la llave buena no entró a la caché")
+	}
+	if badN {
+		t.Fatal("la llave con N corrupto no debió entrar a la caché")
+	}
+}
+
+// TestJwksKeyStaleCacheFallback: con la caché vieja y el servidor caído,
+// la llave almacenada sigue sirviendo.
+func TestJwksKeyStaleCacheFallback(t *testing.T) {
+	tk := newTestKeys(t)
+	srv := tk.jwksServer()
+	withTestIssuer(t, srv.URL)
+	if _, err := jwksKey(testKid); err != nil {
+		t.Fatalf("prime: %v", err)
+	}
+	jwksCache.Lock()
+	jwksCache.lastFetch = time.Now().Add(-time.Hour)
+	jwksCache.Unlock()
+	srv.Close()
+	key, err := jwksKey(testKid)
+	if err != nil {
+		t.Fatalf("fallback a caché: %v", err)
+	}
+	if key == nil {
+		t.Fatal("llave nula en el fallback")
+	}
+}
+
+// TestJwksKeyUnknownKidAfterFetch: un kid ausente sigue siendo error aunque
+// el refresh del JWKS haya funcionado.
+func TestJwksKeyUnknownKidAfterFetch(t *testing.T) {
+	tk := newTestKeys(t)
+	srv := tk.jwksServer()
+	defer srv.Close()
+	withTestIssuer(t, srv.URL)
+	if _, err := jwksKey("kid-que-no-existe"); err == nil {
+		t.Fatal("kid desconocido con servidor vivo: want error")
+	}
+}
+
+// TestAuthTokenSinKid401: un token firmado en RS256 pero sin `kid` se rechaza.
+func TestAuthTokenSinKid401(t *testing.T) {
+	tk := newTestKeys(t)
+	srv := tk.jwksServer()
+	defer srv.Close()
+	withTestIssuer(t, srv.URL)
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"iss":          testIssuer,
+		"sub":          "test-user",
+		"exp":          time.Now().Add(time.Hour).Unix(),
+		"realm_access": map[string]any{"roles": []any{testRole}},
+	})
+	s, err := tok.SignedString(tk.priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doGet(t, probeRouter(testRole), s); got != http.StatusUnauthorized {
+		t.Fatalf("token sin kid: got %d, want 401", got)
 	}
 }

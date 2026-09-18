@@ -147,3 +147,41 @@ func TestMiddlewareNoEnv401(t *testing.T) {
 		t.Fatalf("got %d, want 401", w.Code)
 	}
 }
+
+// TestInitDBOpenError: sql.Open falla si el driver no está registrado
+// (con pgx el DSN se parsea de forma perezosa y Open nunca falla).
+func TestInitDBOpenError(t *testing.T) {
+	oldDriver := dbDriver
+	dbDriver = "driver-inexistente"
+	t.Cleanup(func() { dbDriver = oldDriver })
+	oldDB := db
+	t.Cleanup(func() { db = oldDB })
+	setEnv(t, map[string]string{
+		"DB_HOST": "h", "DB_PORT": "5432",
+		"DB_USER": "u", "DB_PASSWORD": "p", "DB_NAME": "d",
+		"POSTGRES_USER": "", "POSTGRES_PASSWORD": "", "POSTGRES_DB": "",
+	})
+	if err := initDB(); err == nil {
+		t.Fatal("driver inexistente: initDB debería fallar")
+	}
+}
+
+// TestEntryPointPanicsWithoutDB: sin base alcanzable, main() termina en panic.
+func TestEntryPointPanicsWithoutDB(t *testing.T) {
+	oldRetries, oldDelay := dbMaxRetries, dbRetryDelay
+	dbMaxRetries, dbRetryDelay = 1, time.Millisecond
+	t.Cleanup(func() { dbMaxRetries, dbRetryDelay = oldRetries, oldDelay })
+	oldDB := db
+	t.Cleanup(func() { db = oldDB })
+	setEnv(t, map[string]string{
+		"DB_HOST": "127.0.0.1", "DB_PORT": "1",
+		"DB_USER": "u", "DB_PASSWORD": "p", "DB_NAME": "d",
+		"POSTGRES_USER": "", "POSTGRES_PASSWORD": "", "POSTGRES_DB": "",
+	})
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("main() debería panic sin base de datos")
+		}
+	}()
+	main()
+}
