@@ -99,18 +99,25 @@ func initDB() error {
 	return err
 }
 
+// validarReservaIn devuelve un mensaje de error si el cuerpo es inválido, o "" si es válido.
+func validarReservaIn(in reservaIn) string {
+	if in.Nombre == "" || in.Fecha == "" || in.Estado == "" || in.CantidadPersonas <= 0 {
+		return "nombre, fecha y estado son obligatorios y cantidadPersonas debe ser > 0"
+	}
+	if _, err := time.Parse("2006-01-02", in.Fecha); err != nil {
+		return "fecha debe tener formato YYYY-MM-DD"
+	}
+	return ""
+}
+
 func reservasPOST(c *gin.Context) {
 	var in reservaIn
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cuerpo inválido: se requiere JSON con nombre, fecha, cantidadPersonas y estado"})
 		return
 	}
-	if in.Nombre == "" || in.Fecha == "" || in.Estado == "" || in.CantidadPersonas <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "nombre, fecha y estado son obligatorios y cantidadPersonas debe ser > 0"})
-		return
-	}
-	if _, err := time.Parse("2006-01-02", in.Fecha); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "fecha debe tener formato YYYY-MM-DD"})
+	if msg := validarReservaIn(in); msg != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
 	}
 	var id int
@@ -217,6 +224,42 @@ func reservasDELETE(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func reservasPUT(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id debe ser un entero"})
+		return
+	}
+	var in reservaIn
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cuerpo inválido: se requiere JSON con nombre, fecha, cantidadPersonas y estado"})
+		return
+	}
+	if msg := validarReservaIn(in); msg != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+		return
+	}
+	var actualizada bool
+	err = db.QueryRowContext(c.Request.Context(),
+		`SELECT actualizarReserva($1::INTEGER, $2, $3::DATE, $4, $5)`,
+		id, in.Nombre, in.Fecha, in.CantidadPersonas, in.Estado).Scan(&actualizada)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo actualizar la reserva"})
+		return
+	}
+	if !actualizada {
+		c.JSON(http.StatusNotFound, gin.H{"error": "reserva no encontrada"})
+		return
+	}
+	r, err := scanReserva(db.QueryRowContext(c.Request.Context(),
+		`SELECT * FROM obtenerReservaPorId($1::INTEGER)`, id))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo actualizar la reserva"})
+		return
+	}
+	c.JSON(http.StatusOK, r.json())
+}
+
 func pingDB(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 	defer cancel()
@@ -249,6 +292,7 @@ func setupRouter() *gin.Engine {
 	router.GET("/ready", pingDB)
 
 	protected := router.Group("/", authMiddleware("reserva-writer"))
+	protected.PUT("/reservas/:id", reservasPUT)     // update reservas by id
 	protected.DELETE("/reservas/:id", reservasDELETE) // delete reservas by id
 	protected.POST("/reservas", reservasPOST)         // post reservas
 

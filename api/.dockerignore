@@ -1,0 +1,7 @@
+
+*_test.go
+.env
+.env.local
+.git
+README.md
+# para evitar que pruebas y entorno de desarrollo entren a la imagen

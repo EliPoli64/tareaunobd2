@@ -89,6 +89,29 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- SP de actualizacion: retorna TRUE si la fila existia y se actualizo,
+-- FALSE si no existia (el API traduce a 200 / 404).
+CREATE OR REPLACE FUNCTION actualizarReserva(
+  p_reserva_id INTEGER,
+  p_nombre VARCHAR(255),
+  p_fecha DATE,
+  p_cantidad_personas INTEGER,
+  p_estado VARCHAR(31)
+) RETURNS BOOLEAN AS $$
+DECLARE
+  v_actualizadas INTEGER;
+BEGIN
+  UPDATE Reserva
+  SET nombre = p_nombre,
+      fecha = p_fecha,
+      cantidadPersonas = p_cantidad_personas,
+      estado = p_estado
+  WHERE Reserva.reservaId = p_reserva_id;
+  GET DIAGNOSTICS v_actualizadas = ROW_COUNT;
+  RETURN v_actualizadas > 0;
+END;
+$$ LANGUAGE plpgsql;
+
 -- SP de borrado: retorna TRUE si la fila existia y se borro,
 -- FALSE si no existia (el API traduce a 204 / 404).
 CREATE OR REPLACE FUNCTION eliminarReserva(
