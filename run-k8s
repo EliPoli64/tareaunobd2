@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CLUSTER_NAME="tarea-cluster"
+CONTROL_PLANE="tarea-cluster-control-plane"
+
+echo "Construyendo imagenes single-arch desde el working tree (sin caché ni attestations)..."
+docker compose build --no-cache --provenance=false --sbom=false
+
+echo "Iniciando despliegue completo en Kubernetes..."
+
+echo "Creando cluster de kind..."
+kind create cluster --name "$CLUSTER_NAME"
+
+echo "Cargando imagenes al cluster..."
+for img in tareaunobd2-api tareaunobd2-keycloak; do
+  kind load docker-image "$img:latest" --name "$CLUSTER_NAME"
+  if docker exec "$CONTROL_PLANE" crictl images | grep -q "$img"; then
+    echo "OK: $img cargada en el nodo."
+  else
+    echo "ERROR: $img no está disponible en el nodo. Abortando." >&2
+    exit 1
+  fi
+done
+
+echo "Aplicando manifiestos de Kustomize..."
+kubectl apply -k k8s/overlay/dev
+
+echo "Esperando a que los deployments esten disponibles..."
+kubectl rollout status deployment/api --timeout=180s
+kubectl rollout status deployment/db --timeout=180s
+kubectl rollout status deployment/keycloak --timeout=180s
+
+echo "Abriendo puertos: 1412 (API) y 6767 (Keycloak)... Presiona Ctrl+C para detener."
+kubectl port-forward svc/keycloak 6767:6767 &
+KC_PID=$!
+trap 'kill "$KC_PID" 2>/dev/null' EXIT INT TERM
+kubectl port-forward svc/api-service 1412:1412
